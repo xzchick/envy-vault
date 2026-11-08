@@ -47,6 +47,27 @@ class CLITest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             cli.build_parser().parse_args(["frobnicate"])
 
+    def test_completions_bash(self):
+        code, out, _ = self.invoke("completions", "--shell", "bash")
+        self.assertEqual(code, 0)
+        self.assertIn("complete -F _envy_vault envy-vault", out)
+        for name in ("gui", "encrypt", "decrypt", "completions"):
+            self.assertIn(name, out)
+
+    def test_completions_zsh(self):
+        code, out, _ = self.invoke("completions", "--shell", "zsh")
+        self.assertEqual(code, 0)
+        self.assertIn("#compdef envy-vault", out)
+        self.assertIn("encrypt", out)
+
+    def test_completions_default_is_bash_and_stays_in_sync(self):
+        code, out, _ = self.invoke("completions")
+        self.assertEqual(code, 0)
+        self.assertIn("complete -F _envy_vault", out)
+        # The subcommand list is derived from the parser, so a new command appears here too.
+        self.assertEqual(set(cli._subcommand_names(cli.build_parser())),
+                         {"gui", "encrypt", "decrypt", "completions"})
+
 
 if __name__ == "__main__":
     unittest.main()
