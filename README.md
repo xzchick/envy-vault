@@ -86,9 +86,9 @@ ENVY Vault locks a file with a passphrase and nothing else — no key files, no 
 
 Two ways on every system: a **standalone bundle** that needs no Python, or **pip** if you already have Python 3.10+.
 
-### Standalone bundle (no Python) — coming with v0.1.0
+### Standalone bundle (no Python)
 
-The v0.1.0 release will attach a bundle per system. When published, download it from **Releases**:
+The v0.1.0 release attaches a bundle per system. Download one from the [latest release](https://github.com/xzchick/envy-vault/releases/latest):
 
 | File | System | Run it |
 |---|---|---|
