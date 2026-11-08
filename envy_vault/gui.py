@@ -27,6 +27,8 @@ PINK = "#ff3db4"
 CYAN = "#35e8ff"
 LAVENDER = "#ac8cff"
 VIOLET = "#8547e8"
+AMBER = "#ffb347"
+GREEN = "#49e3a6"
 LINE = "#1f2547"
 
 
@@ -244,13 +246,21 @@ def _build():
         def update_strength(self):
             if self.mode != "encrypt":
                 return
-            n = len(self.pw.text())
+            text = self.pw.text()
+            n = len(text)
+            # Character-class variety: lower, upper, digit, and symbol.
+            classes = (any(c.islower() for c in text) + any(c.isupper() for c in text)
+                       + any(c.isdigit() for c in text) + any(not c.isalnum() for c in text))
             if n == 0:
                 self.strength.setText("At least 12 characters."); color = DIM
             elif n < 12:
                 self.strength.setText(f"{12 - n} more character(s)."); color = PINK
+            elif classes <= 1 and n < 20:
+                self.strength.setText("Good length — mix cases, digits or symbols to strengthen it."); color = AMBER
+            elif classes >= 3 or n >= 20:
+                self.strength.setText("Strong passphrase."); color = GREEN
             else:
-                self.strength.setText("Good length."); color = CYAN
+                self.strength.setText("Good passphrase."); color = CYAN
             self.strength.setStyleSheet(f"#hint{{color:{color};}}")
 
         def pick_source(self):
