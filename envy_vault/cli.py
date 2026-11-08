@@ -38,14 +38,66 @@ def build_parser() -> argparse.ArgumentParser:
         sub = commands.add_parser(name, help=f"{verb.lower()} a file")
         sub.add_argument("source")
         sub.add_argument("destination", help="a new file; it is never overwritten")
+    comp = commands.add_parser("completions", help="print a shell completion script (bash or zsh)")
+    comp.add_argument("--shell", choices=("bash", "zsh"), default="bash")
     return root
 
 
+def _subcommand_names(parser: argparse.ArgumentParser) -> list[str]:
+    """The subcommand names, read back from the parser so completions stay in sync."""
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return list(action.choices.keys())
+    return []
+
+
+_BASH_COMPLETION = r"""_envy_vault() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+    local subcommands="__SUBS__"
+    if [ "$COMP_CWORD" -eq 1 ]; then
+        COMPREPLY=( $(compgen -W "$subcommands --version --help" -- "$cur") )
+        return
+    fi
+    case "${COMP_WORDS[1]}" in
+        encrypt|decrypt) COMPREPLY=( $(compgen -f -- "$cur") ) ;;
+        completions) COMPREPLY=( $(compgen -W "--shell bash zsh" -- "$cur") ) ;;
+    esac
+}
+complete -F _envy_vault envy-vault
+"""
+
+_ZSH_COMPLETION = r"""#compdef envy-vault
+_envy_vault() {
+    local -a subcommands
+    subcommands=(__SUBS__)
+    if (( CURRENT == 2 )); then
+        _describe 'command' subcommands
+        return
+    fi
+    case ${words[2]} in
+        encrypt|decrypt) _files ;;
+        completions) _values 'shell' bash zsh ;;
+    esac
+}
+_envy_vault "$@"
+"""
+
+
+def completion_script(shell: str, parser: argparse.ArgumentParser) -> str:
+    subs = " ".join(_subcommand_names(parser))
+    template = _ZSH_COMPLETION if shell == "zsh" else _BASH_COMPLETION
+    return template.replace("__SUBS__", subs)
+
+
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.command in (None, "gui"):
         from .gui import run_app
         return run_app()
+    if args.command == "completions":
+        print(completion_script(args.shell, parser))
+        return 0
     try:
         return _run_transform(args)
     except VaultError as exc:
