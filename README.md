@@ -27,7 +27,7 @@ AES-256-GCM with a scrypt-derived key, entirely on your own machine. From ENVY B
 </p>
 
 <p align="center">
-  <img src="assets/readme/window.png" width="86%" alt="The ENVY Vault window: a pink-to-cyan ENVY VAULT title over a midnight starfield, Encrypt and Decrypt tabs, file and passphrase fields, and a neon Encrypt button" />
+  <img src="assets/readme/demo.gif" width="86%" alt="The ENVY Vault window: a pink-to-cyan ENVY VAULT title over a midnight starfield, Encrypt and Decrypt tabs, file and passphrase fields, and a neon Encrypt button" />
 </p>
 
 <p align="center"><sub>A real native window — not a browser view. The title pulses, the stars twinkle, a light travels the accent bar, and a pink-to-cyan shimmer runs while it works.</sub></p>
