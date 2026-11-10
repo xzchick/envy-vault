@@ -66,7 +66,7 @@ class CLITest(unittest.TestCase):
         self.assertIn("complete -F _envy_vault", out)
         # The subcommand list is derived from the parser, so a new command appears here too.
         self.assertEqual(set(cli._subcommand_names(cli.build_parser())),
-                         {"gui", "encrypt", "decrypt", "completions"})
+                         {"gui", "encrypt", "decrypt", "encrypt-folder", "decrypt-folder", "completions"})
 
 
 if __name__ == "__main__":
