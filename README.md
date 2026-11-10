@@ -179,4 +179,8 @@ CI runs all of this on Ubuntu, Windows and macOS for every push. The tests inclu
 
 <a name="more"></a>
 
+## Security
+
+Security policy and private vulnerability reporting: **[SECURITY.md](SECURITY.md)**. What ENVY Vault does and does not protect against: **[THREAT_MODEL.md](THREAT_MODEL.md)**.
+
 <p align="center"><sub>MIT licensed. Part of ENVY BLACK VEIL, packaged as a standalone app. Local and offline; no telemetry, no network, no accounts.</sub></p>
