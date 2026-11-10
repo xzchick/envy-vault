@@ -7,7 +7,12 @@ import getpass
 import sys
 
 from . import __version__
-from .core import VaultError, check_passphrase, decrypt_folder, encrypt_folder, transform_file
+from .core import (VaultError, check_passphrase, decrypt_folder, encrypt_folder,
+                   read_regular, transform_file)
+
+
+def _keyfile_bytes(path) -> bytes:
+    return read_regular(path) if path else b""
 
 
 def _passphrase(confirm: bool) -> bytes:
@@ -21,19 +26,21 @@ def _passphrase(confirm: bool) -> bytes:
 
 def _run_transform(args: argparse.Namespace) -> int:
     secret = _passphrase(confirm=args.command == "encrypt")
-    result = transform_file(args.command, args.source, args.destination, secret)
+    keyfile = _keyfile_bytes(args.key_file)
+    result = transform_file(args.command, args.source, args.destination, secret, keyfile)
     print(f"Wrote {result['bytes']} bytes to {result['output']} (original left in place).")
     return 0
 
 
 def _run_folder(args: argparse.Namespace) -> int:
     secret = _passphrase(confirm=args.command == "encrypt-folder")
+    keyfile = _keyfile_bytes(args.key_file)
     if args.command == "encrypt-folder":
-        result = encrypt_folder(args.source, args.destination, secret)
+        result = encrypt_folder(args.source, args.destination, secret, keyfile)
         print(f"Encrypted {result['files']} file(s) → {result['output']} "
               f"({result['bytes']} bytes). The folder was left in place.")
     else:
-        result = decrypt_folder(args.source, args.destination, secret)
+        result = decrypt_folder(args.source, args.destination, secret, keyfile)
         print(f"Restored {result['files']} file(s) under {result['output']}.")
     return 0
 
@@ -46,16 +53,20 @@ def build_parser() -> argparse.ArgumentParser:
     root.add_argument("--version", action="version", version=f"envy-vault {__version__}")
     commands = root.add_subparsers(dest="command")
     commands.add_parser("gui", help="open the ENVY Vault window (default)")
+    keyfile_help = "an optional key-file mixed in as a second factor (the same file is needed to decrypt)"
     for name, verb in (("encrypt", "Encrypt"), ("decrypt", "Decrypt")):
         sub = commands.add_parser(name, help=f"{verb.lower()} a file")
         sub.add_argument("source")
         sub.add_argument("destination", help="a new file; it is never overwritten")
+        sub.add_argument("--key-file", default=None, metavar="PATH", help=keyfile_help)
     ef = commands.add_parser("encrypt-folder", help="archive and encrypt a whole folder into one vault file")
     ef.add_argument("source", help="the folder to encrypt (its files, minus symlinks)")
     ef.add_argument("destination", help="a new vault file; it is never overwritten")
+    ef.add_argument("--key-file", default=None, metavar="PATH", help=keyfile_help)
     df = commands.add_parser("decrypt-folder", help="decrypt a folder vault and restore its files")
     df.add_argument("source", help="the folder vault file")
     df.add_argument("destination", help="a directory to restore the files under")
+    df.add_argument("--key-file", default=None, metavar="PATH", help=keyfile_help)
     comp = commands.add_parser("completions", help="print a shell completion script (bash or zsh)")
     comp.add_argument("--shell", choices=("bash", "zsh"), default="bash")
     return root

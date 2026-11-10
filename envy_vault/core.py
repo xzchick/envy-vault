@@ -11,6 +11,7 @@ decrypt. Files written here open in the original Vault and vice versa.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import stat
 from pathlib import Path
@@ -32,17 +33,23 @@ class VaultError(Exception):
     """A user-facing error: a bad passphrase, a missing file, a refused path."""
 
 
-def _derive_key(secret: bytes, salt: bytes) -> bytes:
-    return Scrypt(salt=salt, length=32, n=2 ** 15, r=8, p=1).derive(secret)
+def _derive_key(secret: bytes, salt: bytes, keyfile: bytes = b"") -> bytes:
+    # With no keyfile the material is the passphrase alone, so existing files stay
+    # decryptable. A keyfile mixes its digest in as a required second factor; the
+    # envelope format is unchanged, so decrypting simply needs the same keyfile.
+    material = secret
+    if keyfile:
+        material = secret + b"\x1fENVYKEYFILE\x1f" + hashlib.sha256(keyfile).digest()
+    return Scrypt(salt=salt, length=32, n=2 ** 15, r=8, p=1).derive(material)
 
 
-def encrypt_bytes(data: bytes, secret: bytes) -> bytes:
+def encrypt_bytes(data: bytes, secret: bytes, keyfile: bytes = b"") -> bytes:
     salt, nonce = os.urandom(SALT_BYTES), os.urandom(NONCE_BYTES)
-    sealed = AESGCM(_derive_key(secret, salt)).encrypt(nonce, data, MAGIC)
+    sealed = AESGCM(_derive_key(secret, salt, keyfile)).encrypt(nonce, data, MAGIC)
     return MAGIC + salt + nonce + sealed
 
 
-def decrypt_bytes(data: bytes, secret: bytes) -> bytes:
+def decrypt_bytes(data: bytes, secret: bytes, keyfile: bytes = b"") -> bytes:
     if not data.startswith(MAGIC) or len(data) < _MIN_ENVELOPE:
         raise VaultError("Not an ENVY encrypted file.")
     body = data[len(MAGIC):]
@@ -50,9 +57,9 @@ def decrypt_bytes(data: bytes, secret: bytes) -> bytes:
     nonce = body[SALT_BYTES:SALT_BYTES + NONCE_BYTES]
     sealed = body[SALT_BYTES + NONCE_BYTES:]
     try:
-        return AESGCM(_derive_key(secret, salt)).decrypt(nonce, sealed, MAGIC)
+        return AESGCM(_derive_key(secret, salt, keyfile)).decrypt(nonce, sealed, MAGIC)
     except InvalidTag:
-        raise VaultError("Incorrect passphrase, or the file was modified.") from None
+        raise VaultError("Incorrect passphrase or key-file, or the file was modified.") from None
 
 
 def check_passphrase(secret: bytes) -> bytes:
@@ -152,31 +159,34 @@ def _unpack_folder(blob: bytes, destination) -> tuple[Path, list[str]]:
     return dest, written
 
 
-def encrypt_folder(folder, destination, secret: bytes) -> dict:
+def encrypt_folder(folder, destination, secret: bytes, keyfile: bytes = b"") -> dict:
     """Archive a folder's files and encrypt them into a single new vault file."""
     blob, names = _pack_folder(folder)
-    output = encrypt_bytes(blob, secret)
+    output = encrypt_bytes(blob, secret, keyfile)
     write_new_file(destination, output)
     return {"output": str(Path(destination).expanduser()), "files": len(names),
             "bytes": len(output), "source_preserved": True}
 
 
-def decrypt_folder(source, destination, secret: bytes) -> dict:
+def decrypt_folder(source, destination, secret: bytes, keyfile: bytes = b"") -> dict:
     """Decrypt a folder vault and restore its files under ``destination``."""
-    blob = decrypt_bytes(read_regular(source), secret)
+    blob = decrypt_bytes(read_regular(source), secret, keyfile)
     dest, written = _unpack_folder(blob, destination)
     return {"output": str(dest), "files": len(written), "source_preserved": True}
 
 
-def transform_file(action: str, source: str | Path, destination: str | Path, secret: bytes) -> dict:
+def transform_file(action: str, source: str | Path, destination: str | Path, secret: bytes,
+                   keyfile: bytes = b"") -> dict:
     """Encrypt or decrypt ``source`` into a brand-new ``destination``.
 
     The source is always left untouched. ``secret`` is the passphrase bytes;
-    validate it with :func:`check_passphrase` before calling for encryption.
+    validate it with :func:`check_passphrase` before calling for encryption. An optional
+    ``keyfile`` mixes a second factor into the key; the same keyfile is needed to decrypt.
     """
     if action not in ("encrypt", "decrypt"):
         raise VaultError("Action must be 'encrypt' or 'decrypt'.")
     data = read_regular(source)
-    output = encrypt_bytes(data, secret) if action == "encrypt" else decrypt_bytes(data, secret)
+    output = (encrypt_bytes(data, secret, keyfile) if action == "encrypt"
+              else decrypt_bytes(data, secret, keyfile))
     write_new_file(destination, output)
     return {"output": str(Path(destination).expanduser()), "bytes": len(output), "source_preserved": True}
