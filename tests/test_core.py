@@ -70,6 +70,27 @@ class FileTest(unittest.TestCase):
         core.transform_file("decrypt", enc, dec, b"a good passphrase")
         self.assertEqual(dec.read_bytes(), b"hello vault")
 
+    def test_keyfile_round_trip_and_backward_compatible(self):
+        # No keyfile derives the same key as before (existing file still decrypts).
+        self.assertEqual(core.decrypt_bytes(ORIGINAL_ENVELOPE, ORIGINAL_SECRET), ORIGINAL_PLAINTEXT)
+        kf = b"\x10\x20\x30 a key-file's bytes"
+        env = core.encrypt_bytes(b"secret payload", b"a good passphrase", keyfile=kf)
+        self.assertEqual(core.decrypt_bytes(env, b"a good passphrase", keyfile=kf), b"secret payload")
+
+    def test_keyfile_required_when_used(self):
+        kf = b"second factor"
+        env = core.encrypt_bytes(b"data", b"a good passphrase", keyfile=kf)
+        # Right passphrase but no key-file -> fails.
+        with self.assertRaises(core.VaultError):
+            core.decrypt_bytes(env, b"a good passphrase")
+        # Right passphrase, wrong key-file -> fails.
+        with self.assertRaises(core.VaultError):
+            core.decrypt_bytes(env, b"a good passphrase", keyfile=b"wrong file")
+        # A file encrypted WITHOUT a keyfile must not decrypt if a keyfile is supplied.
+        plain_env = core.encrypt_bytes(b"data", b"a good passphrase")
+        with self.assertRaises(core.VaultError):
+            core.decrypt_bytes(plain_env, b"a good passphrase", keyfile=kf)
+
     def test_folder_round_trip(self):
         src = self.dir / "proj"
         (src / "sub").mkdir(parents=True)
