@@ -100,6 +100,14 @@ The v0.1.0 release attaches a bundle per system. Download one from the [latest r
 
 Running `envy-vault` with no arguments opens the window. Double-clicking works too.
 
+### Homebrew (macOS, Apple Silicon)
+
+```sh
+brew install --cask xzchick/envy/envy-vault
+```
+
+These builds aren't notarized, so if macOS blocks it on first run, add `--no-quarantine` to that command. Intel Macs, Linux and Windows: use the standalone bundle above.
+
 ### From pip (Python 3.10+)
 
 ```sh
