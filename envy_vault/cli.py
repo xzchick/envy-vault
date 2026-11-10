@@ -7,7 +7,7 @@ import getpass
 import sys
 
 from . import __version__
-from .core import VaultError, check_passphrase, transform_file
+from .core import VaultError, check_passphrase, decrypt_folder, encrypt_folder, transform_file
 
 
 def _passphrase(confirm: bool) -> bytes:
@@ -26,6 +26,18 @@ def _run_transform(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_folder(args: argparse.Namespace) -> int:
+    secret = _passphrase(confirm=args.command == "encrypt-folder")
+    if args.command == "encrypt-folder":
+        result = encrypt_folder(args.source, args.destination, secret)
+        print(f"Encrypted {result['files']} file(s) → {result['output']} "
+              f"({result['bytes']} bytes). The folder was left in place.")
+    else:
+        result = decrypt_folder(args.source, args.destination, secret)
+        print(f"Restored {result['files']} file(s) under {result['output']}.")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(
         prog="envy-vault",
@@ -38,6 +50,12 @@ def build_parser() -> argparse.ArgumentParser:
         sub = commands.add_parser(name, help=f"{verb.lower()} a file")
         sub.add_argument("source")
         sub.add_argument("destination", help="a new file; it is never overwritten")
+    ef = commands.add_parser("encrypt-folder", help="archive and encrypt a whole folder into one vault file")
+    ef.add_argument("source", help="the folder to encrypt (its files, minus symlinks)")
+    ef.add_argument("destination", help="a new vault file; it is never overwritten")
+    df = commands.add_parser("decrypt-folder", help="decrypt a folder vault and restore its files")
+    df.add_argument("source", help="the folder vault file")
+    df.add_argument("destination", help="a directory to restore the files under")
     comp = commands.add_parser("completions", help="print a shell completion script (bash or zsh)")
     comp.add_argument("--shell", choices=("bash", "zsh"), default="bash")
     return root
@@ -99,6 +117,8 @@ def main(argv: list[str] | None = None) -> int:
         print(completion_script(args.shell, parser))
         return 0
     try:
+        if args.command in ("encrypt-folder", "decrypt-folder"):
+            return _run_folder(args)
         return _run_transform(args)
     except VaultError as exc:
         print(f"Error: {exc}", file=sys.stderr)

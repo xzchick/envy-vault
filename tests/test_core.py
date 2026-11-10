@@ -70,6 +70,54 @@ class FileTest(unittest.TestCase):
         core.transform_file("decrypt", enc, dec, b"a good passphrase")
         self.assertEqual(dec.read_bytes(), b"hello vault")
 
+    def test_folder_round_trip(self):
+        src = self.dir / "proj"
+        (src / "sub").mkdir(parents=True)
+        (src / "a.txt").write_bytes(b"alpha")
+        (src / "sub" / "b.bin").write_bytes(b"\x00\x01\x02beta")
+        (src / "sub" / "deep").mkdir()
+        (src / "sub" / "deep" / "c.md").write_text("# gamma\n")
+        vault = self.dir / "proj.vault"
+        res = core.encrypt_folder(src, vault, b"a good passphrase")
+        self.assertEqual(res["files"], 3)
+        self.assertTrue(src.exists(), "source folder preserved")
+        out = self.dir / "restored"
+        dres = core.decrypt_folder(vault, out, b"a good passphrase")
+        self.assertEqual(dres["files"], 3)
+        self.assertEqual((out / "a.txt").read_bytes(), b"alpha")
+        self.assertEqual((out / "sub" / "b.bin").read_bytes(), b"\x00\x01\x02beta")
+        self.assertEqual((out / "sub" / "deep" / "c.md").read_text(), "# gamma\n")
+
+    def test_folder_skips_symlinks(self):
+        src = self.dir / "proj"
+        src.mkdir()
+        (src / "real.txt").write_bytes(b"real")
+        try:
+            (src / "link.txt").symlink_to(src / "real.txt")
+        except (OSError, NotImplementedError):
+            self.skipTest("symlinks unavailable")
+        res = core.encrypt_folder(src, self.dir / "p.vault", b"a good passphrase")
+        self.assertEqual(res["files"], 1)       # only the regular file
+
+    def test_decrypt_folder_rejects_path_traversal(self):
+        blob = core._ARCHIVE_MAGIC + (1).to_bytes(4, "big")
+        rel = b"../escape.txt"
+        blob += len(rel).to_bytes(2, "big") + rel
+        payload = b"pwned"
+        blob += len(payload).to_bytes(8, "big") + payload
+        forged = self.dir / "evil.vault"
+        forged.write_bytes(core.encrypt_bytes(blob, b"a good passphrase"))
+        with self.assertRaises(core.VaultError):
+            core.decrypt_folder(forged, self.dir / "out", b"a good passphrase")
+        self.assertFalse((self.dir / "escape.txt").exists())
+
+    def test_decrypt_folder_rejects_non_folder_vault(self):
+        plain = self.dir / "f.txt"; plain.write_bytes(b"just a file")
+        enc = self.dir / "f.enc"
+        core.transform_file("encrypt", plain, enc, b"a good passphrase")
+        with self.assertRaises(core.VaultError):
+            core.decrypt_folder(enc, self.dir / "out", b"a good passphrase")
+
     def test_never_overwrites_destination(self):
         plain = self.dir / "a.txt"
         plain.write_bytes(b"data")

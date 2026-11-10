@@ -96,6 +96,78 @@ def write_new_file(path: str | Path, data: bytes) -> Path:
     return path
 
 
+_ARCHIVE_MAGIC = b"ENVYDIR1\x00"
+MAX_FOLDER_FILES = 100_000
+
+
+def _pack_folder(folder) -> tuple[bytes, list[str]]:
+    """Pack a folder's regular files into one deterministic archive blob. Symlinks and
+    special files are skipped; empty directories are not preserved."""
+    root = Path(folder).expanduser()
+    if not root.is_dir():
+        raise VaultError("Expected a folder to encrypt.")
+    files = [p for p in sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix())
+             if p.is_file() and not p.is_symlink()]
+    if len(files) > MAX_FOLDER_FILES:
+        raise VaultError("Folder has too many files to archive.")
+    out = bytearray(_ARCHIVE_MAGIC)
+    out += len(files).to_bytes(4, "big")
+    names = []
+    for path in files:
+        rel = path.relative_to(root).as_posix().encode("utf-8")
+        data = read_regular(path)
+        out += len(rel).to_bytes(2, "big") + rel
+        out += len(data).to_bytes(8, "big") + data
+        names.append(path.relative_to(root).as_posix())
+    return bytes(out), names
+
+
+def _unpack_folder(blob: bytes, destination) -> tuple[Path, list[str]]:
+    """Restore files from an archive blob into ``destination``, refusing any path that
+    would escape it and never overwriting an existing file."""
+    if not blob.startswith(_ARCHIVE_MAGIC):
+        raise VaultError("This is not an ENVY encrypted folder.")
+    dest = Path(destination).expanduser()
+    dest.mkdir(parents=True, exist_ok=True)
+    droot = os.path.realpath(dest)
+    view = memoryview(blob)
+    i = len(_ARCHIVE_MAGIC)
+    count = int.from_bytes(view[i:i + 4], "big"); i += 4
+    written = []
+    for _ in range(count):
+        nlen = int.from_bytes(view[i:i + 2], "big"); i += 2
+        rel = bytes(view[i:i + nlen]).decode("utf-8"); i += nlen
+        dlen = int.from_bytes(view[i:i + 8], "big"); i += 8
+        data = bytes(view[i:i + dlen]); i += dlen
+        target = os.path.realpath(os.path.join(dest, rel))
+        try:
+            inside = target == droot or os.path.commonpath([target, droot]) == droot
+        except ValueError:                       # different drive on Windows
+            inside = False
+        if not inside:
+            raise VaultError("Refusing an unsafe path inside the archive.")
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+        write_new_file(target, data)
+        written.append(rel)
+    return dest, written
+
+
+def encrypt_folder(folder, destination, secret: bytes) -> dict:
+    """Archive a folder's files and encrypt them into a single new vault file."""
+    blob, names = _pack_folder(folder)
+    output = encrypt_bytes(blob, secret)
+    write_new_file(destination, output)
+    return {"output": str(Path(destination).expanduser()), "files": len(names),
+            "bytes": len(output), "source_preserved": True}
+
+
+def decrypt_folder(source, destination, secret: bytes) -> dict:
+    """Decrypt a folder vault and restore its files under ``destination``."""
+    blob = decrypt_bytes(read_regular(source), secret)
+    dest, written = _unpack_folder(blob, destination)
+    return {"output": str(dest), "files": len(written), "source_preserved": True}
+
+
 def transform_file(action: str, source: str | Path, destination: str | Path, secret: bytes) -> dict:
     """Encrypt or decrypt ``source`` into a brand-new ``destination``.
 
