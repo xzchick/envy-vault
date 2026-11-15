@@ -107,9 +107,10 @@ _ARCHIVE_MAGIC = b"ENVYDIR1\x00"
 MAX_FOLDER_FILES = 100_000
 
 
-def _pack_folder(folder) -> tuple[bytes, list[str]]:
+def _pack_folder(folder, progress=None) -> tuple[bytes, list[str]]:
     """Pack a folder's regular files into one deterministic archive blob. Symlinks and
-    special files are skipped; empty directories are not preserved."""
+    special files are skipped; empty directories are not preserved. ``progress``, if
+    given, is called ``progress(done, total, name)`` as each file is packed."""
     root = Path(folder).expanduser()
     if not root.is_dir():
         raise VaultError("Expected a folder to encrypt.")
@@ -121,17 +122,21 @@ def _pack_folder(folder) -> tuple[bytes, list[str]]:
     out += len(files).to_bytes(4, "big")
     names = []
     for path in files:
-        rel = path.relative_to(root).as_posix().encode("utf-8")
+        name = path.relative_to(root).as_posix()
+        rel = name.encode("utf-8")
         data = read_regular(path)
         out += len(rel).to_bytes(2, "big") + rel
         out += len(data).to_bytes(8, "big") + data
-        names.append(path.relative_to(root).as_posix())
+        names.append(name)
+        if progress is not None:
+            progress(len(names), len(files), name)
     return bytes(out), names
 
 
-def _unpack_folder(blob: bytes, destination) -> tuple[Path, list[str]]:
+def _unpack_folder(blob: bytes, destination, progress=None) -> tuple[Path, list[str]]:
     """Restore files from an archive blob into ``destination``, refusing any path that
-    would escape it and never overwriting an existing file."""
+    would escape it and never overwriting an existing file. ``progress``, if given, is
+    called ``progress(done, total, name)`` as each file is written."""
     if not blob.startswith(_ARCHIVE_MAGIC):
         raise VaultError("This is not an ENVY encrypted folder.")
     dest = Path(destination).expanduser()
@@ -156,22 +161,28 @@ def _unpack_folder(blob: bytes, destination) -> tuple[Path, list[str]]:
         Path(target).parent.mkdir(parents=True, exist_ok=True)
         write_new_file(target, data)
         written.append(rel)
+        if progress is not None:
+            progress(len(written), count, rel)
     return dest, written
 
 
-def encrypt_folder(folder, destination, secret: bytes, keyfile: bytes = b"") -> dict:
-    """Archive a folder's files and encrypt them into a single new vault file."""
-    blob, names = _pack_folder(folder)
+def encrypt_folder(folder, destination, secret: bytes, keyfile: bytes = b"", progress=None) -> dict:
+    """Archive a folder's files and encrypt them into a single new vault file.
+
+    ``progress``, if given, is called ``progress(done, total, name)`` as each file is read."""
+    blob, names = _pack_folder(folder, progress)
     output = encrypt_bytes(blob, secret, keyfile)
     write_new_file(destination, output)
     return {"output": str(Path(destination).expanduser()), "files": len(names),
             "bytes": len(output), "source_preserved": True}
 
 
-def decrypt_folder(source, destination, secret: bytes, keyfile: bytes = b"") -> dict:
-    """Decrypt a folder vault and restore its files under ``destination``."""
+def decrypt_folder(source, destination, secret: bytes, keyfile: bytes = b"", progress=None) -> dict:
+    """Decrypt a folder vault and restore its files under ``destination``.
+
+    ``progress``, if given, is called ``progress(done, total, name)`` as each file is written."""
     blob = decrypt_bytes(read_regular(source), secret, keyfile)
-    dest, written = _unpack_folder(blob, destination)
+    dest, written = _unpack_folder(blob, destination, progress)
     return {"output": str(dest), "files": len(written), "source_preserved": True}
 
 
