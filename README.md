@@ -88,14 +88,14 @@ Two ways on every system: a **standalone bundle** that needs no Python, or **pip
 
 ### Standalone bundle (no Python)
 
-The v0.1.0 release attaches a bundle per system. Download one from the [latest release](https://github.com/xzchick/envy-vault/releases/latest):
+The v0.2.0 release attaches a bundle per system. Download one from the [latest release](https://github.com/xzchick/envy-vault/releases/latest):
 
 | File | System | Run it |
 |---|---|---|
-| `envy-vault-v0.1.0-macos-arm64.tar.gz` | macOS (Apple Silicon) | `tar -xzf` it, then open `envy-vault` |
-| `envy-vault-v0.1.0-windows-x86_64.zip` | Windows (64-bit) | Unzip, then run `envy-vault.exe` |
-| `envy-vault-v0.1.0-linux-x86_64.tar.gz` | Linux (64-bit) | `tar -xzf` it, then run `./envy-vault` |
-| `envy_vault-0.1.0-py3-none-any.whl` | Any OS with Python 3.10+ | `pip install envy_vault-0.1.0-py3-none-any.whl` |
+| `envy-vault-v0.2.0-macos-arm64.tar.gz` | macOS (Apple Silicon) | `tar -xzf` it, then open `envy-vault` |
+| `envy-vault-v0.2.0-windows-x86_64.zip` | Windows (64-bit) | Unzip, then run `envy-vault.exe` |
+| `envy-vault-v0.2.0-linux-x86_64.tar.gz` | Linux (64-bit) | `tar -xzf` it, then run `./envy-vault` |
+| `envy_vault-0.2.0-py3-none-any.whl` | Any OS with Python 3.10+ | `pip install envy_vault-0.2.0-py3-none-any.whl` |
 | `SHA256SUMS.txt` | — | Verify your download first |
 
 Running `envy-vault` with no arguments opens the window. Double-clicking works too.
