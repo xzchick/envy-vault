@@ -183,6 +183,12 @@ CI runs all of this on Ubuntu, Windows and macOS for every push. The tests inclu
 
 Security policy and private vulnerability reporting: **[SECURITY.md](SECURITY.md)**. What ENVY Vault does and does not protect against: **[THREAT_MODEL.md](THREAT_MODEL.md)**.
 
+## Roadmap
+
+Planned work for **v0.3** — signed releases, PyPI publishing, drag-and-drop and
+folder-encrypt in the GUI, and an accessibility pass — is tracked in
+[#11](https://github.com/xzchick/envy-vault/issues/11).
+
 ## The ENVY BLACK VEIL suite
 
 ENVY Vault is one of eleven standalone apps from **ENVY BLACK VEIL** — small native desktop tools that are offline by design: no network, no accounts, no telemetry, everything encrypted at rest.
