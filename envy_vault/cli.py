@@ -35,12 +35,16 @@ def _run_transform(args: argparse.Namespace) -> int:
 def _run_folder(args: argparse.Namespace) -> int:
     secret = _passphrase(confirm=args.command == "encrypt-folder")
     keyfile = _keyfile_bytes(args.key_file)
+    progress = None
+    if args.progress:
+        def progress(done, total, name):
+            print(f"[{done}/{total}] {name}", file=sys.stderr)
     if args.command == "encrypt-folder":
-        result = encrypt_folder(args.source, args.destination, secret, keyfile)
+        result = encrypt_folder(args.source, args.destination, secret, keyfile, progress=progress)
         print(f"Encrypted {result['files']} file(s) → {result['output']} "
               f"({result['bytes']} bytes). The folder was left in place.")
     else:
-        result = decrypt_folder(args.source, args.destination, secret, keyfile)
+        result = decrypt_folder(args.source, args.destination, secret, keyfile, progress=progress)
         print(f"Restored {result['files']} file(s) under {result['output']}.")
     return 0
 
@@ -63,10 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
     ef.add_argument("source", help="the folder to encrypt (its files, minus symlinks)")
     ef.add_argument("destination", help="a new vault file; it is never overwritten")
     ef.add_argument("--key-file", default=None, metavar="PATH", help=keyfile_help)
+    ef.add_argument("--progress", action="store_true", help="print per-file progress to stderr")
     df = commands.add_parser("decrypt-folder", help="decrypt a folder vault and restore its files")
     df.add_argument("source", help="the folder vault file")
     df.add_argument("destination", help="a directory to restore the files under")
     df.add_argument("--key-file", default=None, metavar="PATH", help=keyfile_help)
+    df.add_argument("--progress", action="store_true", help="print per-file progress to stderr")
     comp = commands.add_parser("completions", help="print a shell completion script (bash or zsh)")
     comp.add_argument("--shell", choices=("bash", "zsh"), default="bash")
     return root

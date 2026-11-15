@@ -109,6 +109,26 @@ class FileTest(unittest.TestCase):
         self.assertEqual((out / "sub" / "b.bin").read_bytes(), b"\x00\x01\x02beta")
         self.assertEqual((out / "sub" / "deep" / "c.md").read_text(), "# gamma\n")
 
+    def test_folder_progress_callback(self):
+        src = self.dir / "proj"
+        (src / "sub").mkdir(parents=True)
+        (src / "a.txt").write_bytes(b"alpha")
+        (src / "sub" / "b.txt").write_bytes(b"beta")
+        (src / "c.txt").write_bytes(b"gamma")
+        enc_calls = []
+        vault = self.dir / "proj.vault"
+        core.encrypt_folder(src, vault, b"a good passphrase",
+                            progress=lambda done, total, name: enc_calls.append((done, total, name)))
+        # One call per file, done counting up to the total.
+        self.assertEqual([c[0] for c in enc_calls], [1, 2, 3])
+        self.assertTrue(all(c[1] == 3 for c in enc_calls))
+        self.assertEqual({c[2] for c in enc_calls}, {"a.txt", "c.txt", "sub/b.txt"})
+        dec_calls = []
+        core.decrypt_folder(vault, self.dir / "out", b"a good passphrase",
+                            progress=lambda done, total, name: dec_calls.append((done, total, name)))
+        self.assertEqual([c[0] for c in dec_calls], [1, 2, 3])
+        self.assertTrue(all(c[1] == 3 for c in dec_calls))
+
     def test_folder_skips_symlinks(self):
         src = self.dir / "proj"
         src.mkdir()
