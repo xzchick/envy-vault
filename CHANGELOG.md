@@ -2,6 +2,14 @@
 
 All notable changes to this project. This project adheres to semantic versioning.
 
+## Unreleased
+
+- Window: drag and drop a file or folder onto the window; dropping a `.envy` vault switches to decrypt
+- Window: encrypt whole folders (new Folder… picker) with a live per-file progress bar
+- Window: decrypt either kind of vault — folder vaults are restored as a folder tree
+- Window: optional key-file second factor, matching the CLI's `--key-file`
+- Add `decrypt_any()` to the core API and offscreen GUI tests that drive the real window
+
 ## v0.2.2 — 2026-11-15
 
 - Attach a CycloneDX SBOM to each release (covered by the signed checksums)
