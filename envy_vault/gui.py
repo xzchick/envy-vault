@@ -14,7 +14,8 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .core import VaultError, check_passphrase, transform_file
+from .core import (VaultError, check_passphrase, decrypt_any, encrypt_folder, read_regular,
+                   transform_file)
 
 # ENVY theme.
 BG = "#050713"
@@ -38,7 +39,7 @@ def _build():
                              QPen, QBrush, QPainterPath)
     from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QLineEdit, QPushButton,
                                  QVBoxLayout, QHBoxLayout, QGridLayout, QFileDialog,
-                                 QCheckBox, QFrame, QSizePolicy)
+                                 QCheckBox, QFrame, QSizePolicy, QProgressBar)
 
     class Header(QWidget):
         """Animated neon header painted with QPainter."""
@@ -139,14 +140,29 @@ def _build():
 
     class Worker(QThread):
         done = pyqtSignal(str, object)
+        progress = pyqtSignal(int, int, str)
 
-        def __init__(self, mode, source, dest, secret):
+        def __init__(self, mode, source, dest, secret, keyfile=b""):
             super().__init__()
             self.mode, self.source, self.dest, self.secret = mode, source, dest, secret
+            self.keyfile = keyfile
+
+        def _progress(self, done, total, name):
+            self.progress.emit(done, total, name)
 
         def run(self):
             try:
-                self.done.emit("ok", transform_file(self.mode, self.source, self.dest, self.secret))
+                if self.mode == "encrypt" and Path(self.source).expanduser().is_dir():
+                    result = encrypt_folder(self.source, self.dest, self.secret, self.keyfile,
+                                            progress=self._progress)
+                    result["kind"] = "folder"
+                elif self.mode == "encrypt":
+                    result = transform_file("encrypt", self.source, self.dest, self.secret, self.keyfile)
+                    result["kind"] = "file"
+                else:
+                    result = decrypt_any(self.source, self.dest, self.secret, self.keyfile,
+                                         progress=self._progress)
+                self.done.emit("ok", result)
             except VaultError as exc:
                 self.done.emit("error", str(exc))
             except Exception as exc:  # pragma: no cover
@@ -158,9 +174,10 @@ def _build():
             self.mode = "encrypt"
             self.worker = None
             self.setWindowTitle("ENVY Vault")
-            self.resize(820, 660)
-            self.setMinimumSize(720, 600)
+            self.resize(820, 760)
+            self.setMinimumSize(720, 680)
             self.setStyleSheet(STYLE)
+            self.setAcceptDrops(True)
 
             root = QVBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
             self.header = Header(); root.addWidget(self.header)
@@ -182,13 +199,22 @@ def _build():
             grid = QGridLayout(card); grid.setContentsMargins(22, 20, 22, 20); grid.setHorizontalSpacing(12); grid.setVerticalSpacing(8)
             bl.addWidget(card, 1)
 
-            self.src = QLineEdit(); self.src.setPlaceholderText("Choose a file…")
+            self.src = QLineEdit(); self.src.setPlaceholderText("Choose or drop a file or folder…")
             self.dst = QLineEdit(); self.dst.setPlaceholderText("Where to save the result…")
             self.src.textChanged.connect(self.suggest_dest)
-            grid.addWidget(self._tag("FILE"), 0, 0, 1, 2)
-            grid.addWidget(self.src, 1, 0); grid.addWidget(self._pick("Choose…", self.pick_source), 1, 1)
+            self.src.setAccessibleName("Source file or folder")
+            self.dst.setAccessibleName("Destination")
+            grid.addWidget(self._tag("FILE OR FOLDER  ·  OR DROP IT ON THE WINDOW"), 0, 0, 1, 2)
+            picks = QHBoxLayout(); picks.setSpacing(8)
+            picks.addWidget(self._pick("File…", self.pick_source))
+            picks.addWidget(self._pick("Folder…", self.pick_folder))
+            grid.addWidget(self.src, 1, 0); grid.addLayout(picks, 1, 1)
             grid.addWidget(self._tag("SAVE TO"), 2, 0, 1, 2)
             grid.addWidget(self.dst, 3, 0); grid.addWidget(self._pick("Save as…", self.pick_dest), 3, 1)
+            grid.addWidget(self._tag("KEY FILE  ·  OPTIONAL SECOND FACTOR"), 7, 0, 1, 2)
+            self.kf = QLineEdit(); self.kf.setPlaceholderText("None — passphrase only")
+            self.kf.setAccessibleName("Optional key file")
+            grid.addWidget(self.kf, 8, 0); grid.addWidget(self._pick("Key file…", self.pick_keyfile), 8, 1)
             grid.addWidget(self._tag("PASSPHRASE"), 4, 0, 1, 2)
             self.pw = QLineEdit(); self.pw.setEchoMode(QLineEdit.EchoMode.Password)
             self.pw.setPlaceholderText("At least 12 characters")
@@ -210,6 +236,9 @@ def _build():
             actions.addWidget(self.go_btn); actions.addWidget(self.shimmer, 1)
             bl.addLayout(actions)
 
+            self.bar = QProgressBar(); self.bar.setTextVisible(False); self.bar.setFixedHeight(8)
+            self.bar.setAccessibleName("Folder progress"); self.bar.hide()
+            bl.addWidget(self.bar)
             self.status = QLabel("Ready."); self.status.setObjectName("status"); self.status.setWordWrap(True)
             bl.addWidget(self.status)
             foot = QLabel(f"AES-256-GCM · scrypt · nothing leaves this machine · v{__version__}")
@@ -237,7 +266,6 @@ def _build():
             self.mode = mode
             self.b_enc.setChecked(mode == "encrypt"); self.b_dec.setChecked(mode == "decrypt")
             accent = PINK if mode == "encrypt" else CYAN
-            self.go_btn.setText("Encrypt file  →" if mode == "encrypt" else "Decrypt file  →")
             self.go_btn.setStyleSheet(f"#go{{background:{accent};color:{BG};}}")
             self.strength.setVisible(mode == "encrypt")
             self.suggest_dest(); self.status.setText("Ready to encrypt." if mode == "encrypt" else "Ready to decrypt.")
@@ -266,15 +294,61 @@ def _build():
         def pick_source(self):
             path, _ = QFileDialog.getOpenFileName(self, "Choose a file")
             if path:
-                self.src.setText(path)
+                self.set_source(path)
+
+        def pick_folder(self):
+            path = QFileDialog.getExistingDirectory(self, "Choose a folder to encrypt")
+            if path:
+                self.set_source(path)
+
+        def pick_keyfile(self):
+            path, _ = QFileDialog.getOpenFileName(self, "Choose a key file")
+            if path:
+                self.kf.setText(path)
 
         def pick_dest(self):
             path, _ = QFileDialog.getSaveFileName(self, "Save to")
             if path:
                 self.dst.setText(path)
 
+        def set_source(self, path):
+            """Use ``path`` as the source; a dropped/chosen ``.envy`` vault switches to decrypt."""
+            if self.worker:
+                return
+            if str(path).endswith(".envy") and Path(path).is_file() and self.mode != "decrypt":
+                self.set_mode("decrypt")
+            self.src.setText(str(path))
+
+        # Drag and drop: accept one local file or folder anywhere on the window.
+        def _dropped_path(self, mime):
+            if mime is None or not mime.hasUrls():
+                return None
+            urls = [u for u in mime.urls() if u.isLocalFile()]
+            return urls[0].toLocalFile() if urls else None
+
+        def dragEnterEvent(self, event):
+            if not self.worker and self._dropped_path(event.mimeData()):
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+        def dragMoveEvent(self, event):
+            self.dragEnterEvent(event)
+
+        def dropEvent(self, event):
+            path = self._dropped_path(event.mimeData())
+            if path and not self.worker:
+                self.set_source(path)
+                event.acceptProposedAction()
+
+        def _is_folder_source(self):
+            src = self.src.text().strip()
+            return bool(src) and self.mode == "encrypt" and Path(src).expanduser().is_dir()
+
         def suggest_dest(self):
             src = self.src.text().strip()
+            self.go_btn.setText(("Encrypt folder  →" if self._is_folder_source() else "Encrypt file  →")
+                                if self.mode == "encrypt" else "Decrypt  →")
             if not src:
                 return
             p = Path(src)
@@ -287,16 +361,31 @@ def _build():
             source, dest = self.src.text().strip(), self.dst.text().strip()
             secret = self.pw.text().encode()
             if not source or not dest:
-                return self._fail("Choose a file and where to save it.")
+                return self._fail("Choose a file or folder and where to save it.")
             if self.mode == "encrypt":
                 try:
                     check_passphrase(secret)
                 except VaultError as exc:
                     return self._fail(str(exc))
+            keyfile = b""
+            if self.kf.text().strip():
+                try:
+                    keyfile = read_regular(self.kf.text().strip())
+                except VaultError as exc:
+                    return self._fail(f"Key file: {exc}")
+                if not keyfile:
+                    return self._fail("Key file is empty — choose a file with content.")
             self._set_busy(True)
+            self.bar.setRange(0, 0); self.bar.setVisible(self._is_folder_source() or self.mode == "decrypt")
             self.status.setText("Working…"); self.status.setStyleSheet(f"#status{{color:{CYAN};}}")
-            self.worker = Worker(self.mode, source, dest, secret)
+            self.worker = Worker(self.mode, source, dest, secret, keyfile)
+            self.worker.progress.connect(self._progress)
             self.worker.done.connect(self._finished); self.worker.start()
+
+        def _progress(self, done, total, name):
+            self.bar.show(); self.bar.setRange(0, max(total, 1)); self.bar.setValue(done)
+            verb = "Packing" if self.mode == "encrypt" else "Restoring"
+            self.status.setText(f"{verb} {done:,}/{total:,}  ·  {name}")
 
         def _fail(self, message):
             self.status.setText(message); self.status.setStyleSheet(f"#status{{color:{PINK};}}")
@@ -305,14 +394,20 @@ def _build():
             self._set_busy(False); self.worker = None
             if kind == "ok":
                 verb = "Encrypted" if self.mode == "encrypt" else "Decrypted"
-                self.status.setText(f"{verb}  →  {payload['output']}   ({payload['bytes']:,} bytes)")
+                if payload.get("kind") == "folder":
+                    detail = f"{payload['files']:,} file(s)"
+                    self.bar.setRange(0, max(payload["files"], 1)); self.bar.setValue(payload["files"])
+                else:
+                    detail = f"{payload['bytes']:,} bytes"; self.bar.hide()
+                self.status.setText(f"{verb}  →  {payload['output']}   ({detail})")
                 self.status.setStyleSheet(f"#status{{color:{CYAN};}}")
             else:
+                self.bar.hide()
                 self._fail(payload)
 
         def _set_busy(self, value):
             self.shimmer.active = value
-            for widget in (self.go_btn, self.b_enc, self.b_dec):
+            for widget in (self.go_btn, self.b_enc, self.b_dec, self.src, self.dst, self.kf):
                 widget.setEnabled(not value)
 
     return QApplication, VaultWindow
@@ -347,6 +442,9 @@ QPushButton#pick:hover {{ background: {{LLAV}}; }}
 QPushButton#go {{ background: {PINK}; color: {BG}; border: none; border-radius: 12px;
                   font-weight: bold; font-size: 15px; padding: 0 22px; }}
 QPushButton#go:disabled {{ background: {PANEL_HI}; color: {DIM}; }}
+QProgressBar {{ background: {PANEL_HI}; border: 1px solid {LINE}; border-radius: 4px; }}
+QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {PINK}, stop:1 {CYAN});
+                       border-radius: 4px; }}
 QCheckBox {{ color: {MUTED}; font-size: 11px; }}
 QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {LINE};
                         border-radius: 4px; background: {PANEL_HI}; }}

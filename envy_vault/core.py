@@ -186,6 +186,21 @@ def decrypt_folder(source, destination, secret: bytes, keyfile: bytes = b"", pro
     return {"output": str(dest), "files": len(written), "source_preserved": True}
 
 
+def decrypt_any(source, destination, secret: bytes, keyfile: bytes = b"", progress=None) -> dict:
+    """Decrypt a vault whether it holds a single file or a whole folder.
+
+    A folder vault is restored under ``destination`` (``progress`` is called per file);
+    a file vault is written to the new file ``destination``. The result's ``kind`` is
+    ``"folder"`` or ``"file"``."""
+    plain = decrypt_bytes(read_regular(source), secret, keyfile)
+    if plain.startswith(_ARCHIVE_MAGIC):
+        dest, written = _unpack_folder(plain, destination, progress)
+        return {"kind": "folder", "output": str(dest), "files": len(written), "source_preserved": True}
+    write_new_file(destination, plain)
+    return {"kind": "file", "output": str(Path(destination).expanduser()), "bytes": len(plain),
+            "source_preserved": True}
+
+
 def transform_file(action: str, source: str | Path, destination: str | Path, secret: bytes,
                    keyfile: bytes = b"") -> dict:
     """Encrypt or decrypt ``source`` into a brand-new ``destination``.
