@@ -324,7 +324,8 @@ def _build():
             if mime is None or not mime.hasUrls():
                 return None
             urls = [u for u in mime.urls() if u.isLocalFile()]
-            return urls[0].toLocalFile() if urls else None
+            # Qt reports forward slashes on Windows; show the OS-native form.
+            return str(Path(urls[0].toLocalFile())) if urls else None
 
         def dragEnterEvent(self, event):
             if not self.worker and self._dropped_path(event.mimeData()):
